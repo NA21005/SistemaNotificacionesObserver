@@ -599,9 +599,9 @@ namespace SistemaNotificaciones
         {
             if (_prodEmailSub) AlternarProdEmail();
             if (_prodAuditoriaSub) AlternarProdAuditoria();
-            if (!_prodAlmacenSub) AlternarProdAlmacen();
-            if (!_tareaEmailSub) AlternarTareaEmail();
-            if (!_tareaAuditoriaSub) AlternarTareaAuditoria();
+            if (_prodAlmacenSub) AlternarProdAlmacen();
+            if (_tareaEmailSub) AlternarTareaEmail();
+            if (_tareaAuditoriaSub) AlternarTareaAuditoria();
             MostrarAvisoCambio("Todos los observadores han sido DESUSCRITOS exitosamente.");
         }
 
