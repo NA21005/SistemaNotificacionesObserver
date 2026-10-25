@@ -1,4 +1,4 @@
-﻿namespace SistemaNotificaciones.Abstracciones
+namespace SistemaNotificaciones.Abstracciones
 {
     /// <summary>
     /// Contrato genérico que define las operaciones de suscripción y difusión de eventos.
@@ -17,6 +17,13 @@
         /// </summary>
         /// <param name="obs">Observador que se desea desuscribir.</param>
         void desuscribir(IObservador<T> obs);
+
+        /// <summary>
+        /// Indica si un observador se encuentra actualmente suscrito.
+        /// </summary>
+        /// <param name="obs">Observador a consultar.</param>
+        /// <returns><c>true</c> si el observador está en la lista de difusión.</returns>
+        bool estaSuscrito(IObservador<T> obs);
 
         /// <summary>
         /// Itera y ejecuta la actualización en todos los observadores registrados.

@@ -27,14 +27,15 @@ Aplicación de consola en **C# / .NET 10** que implementa el patrón de diseño 
 SistemaNotificaciones/SistemaNotificaciones/
 ├── Abstracciones/   ISujeto<T>, IObservador<T>
 ├── Dominio/         Producto, Tarea, Prioridad
-├── Sujetos/         GestorProductos, GestorTareas
+├── Sujetos/         SujetoBase<T>, GestorProductos, GestorTareas
 ├── Observadores/    NotificadorEmail, ServicioAuditoria, AlertaEquipoAlmacen
+├── Presentacion/    ConsolaUI (utilidades de consola)
 └── Program.cs       Menús de consola y composición de dependencias
 ```
 
 | Rol en el patrón | Clases |
 |---|---|
-| Sujetos | `GestorProductos` (`ISujeto<Producto>`), `GestorTareas` (`ISujeto<Tarea>`) |
+| Sujetos | `GestorProductos` (`ISujeto<Producto>`), `GestorTareas` (`ISujeto<Tarea>`), ambos sobre la clase base `SujetoBase<T>` |
 | Observadores | `NotificadorEmail` y `ServicioAuditoria` (productos **y** tareas), `AlertaEquipoAlmacen` (solo productos) |
 | Datos propagados | `Producto`, `Tarea` (entidades sin lógica de notificación) |
 
@@ -46,7 +47,8 @@ SistemaNotificaciones/SistemaNotificaciones/
 2. **Modelo push:** el sujeto envía la entidad completa en `actualizar(T datos)`, lo que reduce el acoplamiento.
 3. **Dominio independiente:** `Producto` y `Tarea` solo guardan estado y validan en el constructor.
 4. **Observadores multi-interfaz:** una instancia de `NotificadorEmail` o `ServicioAuditoria` atiende a ambos módulos. `AlertaEquipoAlmacen` solo implementa `IObservador<Producto>`, así que el compilador rechaza suscribirla a tareas.
-5. **Notificación sobre copia** (`ToList()` / `ToArray()`): un observador puede desuscribirse durante la notificación sin romper la iteración.
+5. **Notificación sobre copia** (`ToArray()`): un observador puede desuscribirse durante la notificación sin romper la iteración. Si un observador falla, los demás siguen recibiendo el evento.
+6. **`SujetoBase<T>`:** concentra la lista de observadores y la lógica de `suscribir`, `desuscribir`, `estaSuscrito` y `notificar`. Los gestores solo implementan su lógica de negocio y la asignación de identificadores.
 
 ## Principios SOLID
 

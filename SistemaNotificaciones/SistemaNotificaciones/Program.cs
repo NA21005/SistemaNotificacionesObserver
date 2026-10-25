@@ -1,49 +1,31 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
 using SistemaNotificaciones.Abstracciones;
 using SistemaNotificaciones.Dominio;
 using SistemaNotificaciones.Observadores;
+using SistemaNotificaciones.Presentacion;
 using SistemaNotificaciones.Sujetos;
 
 namespace SistemaNotificaciones
 {
     /// <summary>
-    /// Punto de entrada del sistema. Controla la interfaz de consola, coordina la interacción
-    /// entre Sujetos y Observadores y gestiona las suscripciones dinámicas en tiempo real.
+    /// Punto de entrada y capa de composición del sistema. Crea los sujetos y los observadores,
+    /// los conecta entre sí y expone los menús de consola. El estado de cada suscripción se
+    /// consulta directamente al sujeto (<see cref="ISujeto{T}.estaSuscrito"/>).
     /// </summary>
     internal class Program
     {
-        // =========================================================================
-        // Sujetos del Sistema
-        // =========================================================================
+        // Sujetos del sistema
         private static readonly GestorProductos _gestorProductos = new GestorProductos();
         private static readonly GestorTareas _gestorTareas = new GestorTareas();
 
-        // =========================================================================
-        // Observadores Concretos (Instancias Compartidas Reutilizables)
-        // =========================================================================
+        // Observadores concretos (instancias compartidas y reutilizables)
         private static readonly NotificadorEmail _emailObserver = new NotificadorEmail("notificaciones@empresa.com");
         private static readonly ServicioAuditoria _auditoriaObserver = new ServicioAuditoria();
         private static readonly AlertaEquipoAlmacen _almacenObserver = new AlertaEquipoAlmacen("Bodega Central");
 
-        // =========================================================================
-        // Banderas de Estado de Suscripción Dinámica
-        // =========================================================================
-        private static bool _prodEmailSub = true;
-        private static bool _prodAuditoriaSub = true;
-        private static bool _prodAlmacenSub = true;
-
-        private static bool _tareaEmailSub = true;
-        private static bool _tareaAuditoriaSub = true;
-
-        private static int _siguienteIdProducto = 1;
-
         private static void Main(string[] args)
         {
-            SafeSetTitle("Sistema de Notificaciones - Patrón Observer");
-            InicializarSuscripciones();
+            ConsolaUI.EstablecerTitulo("Sistema de Notificaciones - Patrón Observer");
+            ConectarTodos(mostrarAviso: false);
 
             bool salir = false;
             while (!salir)
@@ -58,80 +40,123 @@ namespace SistemaNotificaciones
                 string? opcion = Console.ReadLine();
                 if (opcion == null)
                 {
-                    // Fin del stream de entrada
-                    break;
+                    break; // Fin del stream de entrada
                 }
 
                 switch (opcion.Trim())
                 {
-                    case "1":
-                        SubmenuProductos();
-                        break;
-                    case "2":
-                        SubmenuTareas();
-                        break;
-                    case "3":
-                        MenuSuscripcionesDinamicas();
-                        break;
-                    case "4":
-                        EjecutarDemostracionSecuenciaGuiada();
-                        break;
+                    case "1": SubmenuProductos(); break;
+                    case "2": SubmenuTareas(); break;
+                    case "3": MenuSuscripcionesDinamicas(); break;
+                    case "4": EjecutarDemostracionGuiada(); break;
                     case "5":
                         salir = true;
                         MostrarDespedida();
                         break;
                     default:
-                        MostrarMensajeError("Opción no válida. Por favor, seleccione un número del 1 al 5.");
-                        PausarConsola();
+                        ConsolaUI.Error("Opción no válida. Por favor, seleccione un número del 1 al 5.");
+                        ConsolaUI.Pausar();
                         break;
                 }
             }
         }
 
-        // =========================================================================
-        // Inicialización y Sincronización de Suscripciones
-        // =========================================================================
+        // =====================================================================
+        // Suscripciones (composición de dependencias)
+        // =====================================================================
 
-        private static void InicializarSuscripciones()
+        /// <summary>
+        /// Suscribe o desuscribe un observador según su estado actual en el sujeto.
+        /// </summary>
+        private static void Alternar<T>(ISujeto<T> sujeto, IObservador<T> observador) where T : class
         {
-            // Suscripción inicial a Productos
-            _gestorProductos.suscribir(_emailObserver);
-            _gestorProductos.suscribir(_auditoriaObserver);
-            _gestorProductos.suscribir(_almacenObserver);
+            string nombreObs = observador.GetType().Name;
+            string nombreSujeto = sujeto.GetType().Name;
 
-            // Suscripción inicial a Tareas
-            _gestorTareas.suscribir(_emailObserver);
-            _gestorTareas.suscribir(_auditoriaObserver);
+            if (sujeto.estaSuscrito(observador))
+            {
+                sujeto.desuscribir(observador);
+                ConsolaUI.AvisoCambio($"{nombreObs} desuscrito de {nombreSujeto}.");
+            }
+            else
+            {
+                sujeto.suscribir(observador);
+                ConsolaUI.AvisoCambio($"{nombreObs} suscrito a {nombreSujeto}.");
+            }
         }
 
-        // =========================================================================
-        // Menú Principal y Vistas de Encabezado
-        // =========================================================================
+        /// <summary>
+        /// Deja el observador en el estado deseado, alternándolo solo si es necesario.
+        /// </summary>
+        private static void Asegurar<T>(ISujeto<T> sujeto, IObservador<T> observador, bool suscrito, bool mostrarAviso) where T : class
+        {
+            if (sujeto.estaSuscrito(observador) == suscrito)
+            {
+                return;
+            }
+
+            if (mostrarAviso)
+            {
+                Alternar(sujeto, observador);
+            }
+            else if (suscrito)
+            {
+                sujeto.suscribir(observador);
+            }
+            else
+            {
+                sujeto.desuscribir(observador);
+            }
+        }
+
+        private static void EstablecerTodos(bool suscrito, bool mostrarAviso)
+        {
+            Asegurar<Producto>(_gestorProductos, _emailObserver, suscrito, mostrarAviso);
+            Asegurar<Producto>(_gestorProductos, _auditoriaObserver, suscrito, mostrarAviso);
+            Asegurar<Producto>(_gestorProductos, _almacenObserver, suscrito, mostrarAviso);
+            Asegurar<Tarea>(_gestorTareas, _emailObserver, suscrito, mostrarAviso);
+            Asegurar<Tarea>(_gestorTareas, _auditoriaObserver, suscrito, mostrarAviso);
+        }
+
+        private static void ConectarTodos(bool mostrarAviso = true)
+        {
+            EstablecerTodos(true, mostrarAviso);
+            if (mostrarAviso)
+            {
+                ConsolaUI.AvisoCambio("Todos los observadores han sido SUSCRITOS exitosamente.");
+            }
+        }
+
+        private static void DesconectarTodos()
+        {
+            EstablecerTodos(false, true);
+            ConsolaUI.AvisoCambio("Todos los observadores han sido DESUSCRITOS exitosamente.");
+        }
+
+        // =====================================================================
+        // Menú principal
+        // =====================================================================
 
         private static void MostrarEncabezadoPrincipal()
         {
-            SafeClear();
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine("╔════════════════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║            SISTEMA DE NOTIFICACIONES MULTICANAL                        ║");
-            Console.WriteLine("║            Patrón de Diseño de Comportamiento: Observer                ║");
-            Console.WriteLine("╚════════════════════════════════════════════════════════════════════════╝");
-            Console.ResetColor();
+            ConsolaUI.Limpiar();
+            ConsolaUI.Banner(ConsoleColor.Cyan,
+                "            SISTEMA DE NOTIFICACIONES MULTICANAL",
+                "            Patrón de Diseño de Comportamiento: Observer");
 
-            // Resumen de estado rápido
             Console.ForegroundColor = ConsoleColor.DarkGray;
             Console.Write(" [Estado Suscripciones Productos] Email: ");
-            EscribirEstado(_prodEmailSub);
+            ConsolaUI.EscribirEstado(_gestorProductos.estaSuscrito(_emailObserver));
             Console.Write(" | Auditoría: ");
-            EscribirEstado(_prodAuditoriaSub);
+            ConsolaUI.EscribirEstado(_gestorProductos.estaSuscrito(_auditoriaObserver));
             Console.Write(" | Almacén: ");
-            EscribirEstado(_prodAlmacenSub);
+            ConsolaUI.EscribirEstado(_gestorProductos.estaSuscrito(_almacenObserver));
             Console.WriteLine();
 
             Console.Write(" [Estado Suscripciones Tareas]    Email: ");
-            EscribirEstado(_tareaEmailSub);
+            ConsolaUI.EscribirEstado(_gestorTareas.estaSuscrito(_emailObserver));
             Console.Write(" | Auditoría: ");
-            EscribirEstado(_tareaAuditoriaSub);
+            ConsolaUI.EscribirEstado(_gestorTareas.estaSuscrito(_auditoriaObserver));
             Console.WriteLine();
             Console.WriteLine(new string('─', 74));
             Console.ResetColor();
@@ -144,38 +169,32 @@ namespace SistemaNotificaciones
             Console.WriteLine("  [1] Módulo de Productos (GestorProductos)");
             Console.WriteLine("  [2] Módulo de Tareas (GestorTareas)");
             Console.WriteLine("  [3] Gestión Dinámica de Suscripciones (Observer en Caliente)");
-            Console.WriteLine("  [4] Demostración Guiada (Flujo del Diagrama de Secuencia)");
+            Console.WriteLine("  [4] Demostración Guiada en 5 fases");
             Console.WriteLine("  [5] Salir del Sistema");
             Console.ResetColor();
             Console.WriteLine();
         }
 
-        private static void EscribirEstado(bool activo)
+        private static void MostrarDespedida()
         {
-            if (activo)
-            {
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.Write("ACTIVO");
-            }
-            else
-            {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.Write("INACTIVO");
-            }
-            Console.ForegroundColor = ConsoleColor.DarkGray;
+            ConsolaUI.Limpiar();
+            ConsolaUI.Banner(ConsoleColor.Cyan,
+                "    Gracias por utilizar el Sistema de Notificaciones Observer",
+                "                    ¡Hasta pronto!");
+            Console.WriteLine();
         }
 
-        // =========================================================================
+        // =====================================================================
         // Módulo de Productos
-        // =========================================================================
+        // =====================================================================
 
         private static void SubmenuProductos()
         {
             bool volver = false;
             while (!volver)
             {
-                SafeClear();
-                MostrarEncabezadoModulo("MÓDULO DE GESTIÓN DE PRODUCTOS", ConsoleColor.Green);
+                ConsolaUI.Limpiar();
+                ConsolaUI.EncabezadoModulo("MÓDULO DE GESTIÓN DE PRODUCTOS", ConsoleColor.Green);
                 Console.WriteLine("  [1] Registrar nuevo producto (Disparar Notificaciones)");
                 Console.WriteLine("  [2] Ver catálogo actual de productos");
                 Console.WriteLine("  [3] Volver al Menú Principal");
@@ -187,41 +206,28 @@ namespace SistemaNotificaciones
 
                 switch (op.Trim())
                 {
-                    case "1":
-                        RegistrarProductoInteractiva();
-                        break;
-                    case "2":
-                        MostrarCatalogoProductos();
-                        break;
-                    case "3":
-                        volver = true;
-                        break;
+                    case "1": RegistrarProducto(); break;
+                    case "2": MostrarCatalogoProductos(); break;
+                    case "3": volver = true; break;
                     default:
-                        MostrarMensajeError("Opción no válida.");
-                        PausarConsola();
+                        ConsolaUI.Error("Opción no válida.");
+                        ConsolaUI.Pausar();
                         break;
                 }
             }
         }
 
-        private static void RegistrarProductoInteractiva()
+        private static void RegistrarProducto()
         {
-            SafeClear();
-            MostrarEncabezadoModulo("REGISTRAR NUEVO PRODUCTO", ConsoleColor.Green);
+            ConsolaUI.Limpiar();
+            ConsolaUI.EncabezadoModulo("REGISTRAR NUEVO PRODUCTO", ConsoleColor.Green);
 
             try
             {
-                int id = _siguienteIdProducto;
-                Console.ForegroundColor = ConsoleColor.DarkCyan;
-                Console.WriteLine($" ID asignado automáticamente: #{id}");
-                Console.ResetColor();
+                ConsolaUI.Linea($" ID asignado automáticamente: #{_gestorProductos.siguienteId}", ConsoleColor.DarkCyan);
 
                 Console.Write(" Nombre del producto: ");
-                string? nombre = Console.ReadLine()?.Trim();
-                if (string.IsNullOrWhiteSpace(nombre))
-                {
-                    throw new ArgumentException("El nombre del producto no puede estar vacío.");
-                }
+                string nombre = Console.ReadLine() ?? string.Empty;
 
                 Console.Write(" Precio unitario ($): ");
                 if (!decimal.TryParse(Console.ReadLine(), out decimal precio) || precio < 0)
@@ -235,42 +241,31 @@ namespace SistemaNotificaciones
                     throw new ArgumentException("El stock debe ser un número entero mayor o igual a 0.");
                 }
 
-                Producto nuevoProducto = new Producto(id, nombre, precio, stock);
-                _siguienteIdProducto++;
+                Producto nuevo = new Producto(nombre, precio, stock);
+
+                ConsolaUI.EncabezadoDisparo("GestorProductos.agregarProducto()");
+                _gestorProductos.agregarProducto(nuevo);
 
                 Console.WriteLine();
-                Console.ForegroundColor = ConsoleColor.White;
-                Console.WriteLine("────────────────────────────────────────────────────────────────────────");
-                Console.WriteLine(" Disparando evento GestorProductos.agregarProducto()...");
-                Console.WriteLine(" Observadores suscritos respondiendo a la notificación:");
-                Console.WriteLine("────────────────────────────────────────────────────────────────────────");
-                Console.ResetColor();
-
-                // Disparo de la notificación a través del Sujeto
-                _gestorProductos.agregarProducto(nuevoProducto);
-
-                Console.WriteLine();
-                MostrarMensajeExito($"Producto '{nombre}' agregado exitosamente al catálogo.");
+                ConsolaUI.Exito($"Producto '{nuevo.nombre}' agregado exitosamente al catálogo.");
             }
-            catch (Exception ex)
+            catch (ArgumentException ex)
             {
-                MostrarMensajeError($"Error al registrar producto: {ex.Message}");
+                ConsolaUI.Error($"Error al registrar producto: {ex.Message}");
             }
 
-            PausarConsola();
+            ConsolaUI.Pausar();
         }
 
         private static void MostrarCatalogoProductos()
         {
-            SafeClear();
-            MostrarEncabezadoModulo("CATÁLOGO DE PRODUCTOS EN ALMACÉN", ConsoleColor.Green);
+            ConsolaUI.Limpiar();
+            ConsolaUI.EncabezadoModulo("CATÁLOGO DE PRODUCTOS EN ALMACÉN", ConsoleColor.Green);
 
             var catalogo = _gestorProductos.catalogo;
             if (catalogo.Count == 0)
             {
-                Console.ForegroundColor = ConsoleColor.DarkYellow;
-                Console.WriteLine(" No hay productos registrados aún en el catálogo.");
-                Console.ResetColor();
+                ConsolaUI.Linea(" No hay productos registrados aún en el catálogo.", ConsoleColor.DarkYellow);
             }
             else
             {
@@ -285,20 +280,20 @@ namespace SistemaNotificaciones
                 }
             }
 
-            PausarConsola();
+            ConsolaUI.Pausar();
         }
 
-        // =========================================================================
+        // =====================================================================
         // Módulo de Tareas
-        // =========================================================================
+        // =====================================================================
 
         private static void SubmenuTareas()
         {
             bool volver = false;
             while (!volver)
             {
-                SafeClear();
-                MostrarEncabezadoModulo("MÓDULO DE GESTIÓN DE TAREAS", ConsoleColor.Blue);
+                ConsolaUI.Limpiar();
+                ConsolaUI.EncabezadoModulo("MÓDULO DE GESTIÓN DE TAREAS", ConsoleColor.Blue);
                 Console.WriteLine("  [1] Crear nueva tarea (Disparar Notificaciones)");
                 Console.WriteLine("  [2] Ver listado de tareas registradas");
                 Console.WriteLine("  [3] Volver al Menú Principal");
@@ -310,39 +305,29 @@ namespace SistemaNotificaciones
 
                 switch (op.Trim())
                 {
-                    case "1":
-                        RegistrarTareaInteractiva();
-                        break;
-                    case "2":
-                        MostrarListadoTareas();
-                        break;
-                    case "3":
-                        volver = true;
-                        break;
+                    case "1": RegistrarTarea(); break;
+                    case "2": MostrarListadoTareas(); break;
+                    case "3": volver = true; break;
                     default:
-                        MostrarMensajeError("Opción no válida.");
-                        PausarConsola();
+                        ConsolaUI.Error("Opción no válida.");
+                        ConsolaUI.Pausar();
                         break;
                 }
             }
         }
 
-        private static void RegistrarTareaInteractiva()
+        private static void RegistrarTarea()
         {
-            SafeClear();
-            MostrarEncabezadoModulo("CREAR NUEVA TAREA", ConsoleColor.Blue);
+            ConsolaUI.Limpiar();
+            ConsolaUI.EncabezadoModulo("CREAR NUEVA TAREA", ConsoleColor.Blue);
 
             try
             {
                 Console.Write(" Título de la tarea: ");
-                string? titulo = Console.ReadLine()?.Trim();
-                if (string.IsNullOrWhiteSpace(titulo))
-                {
-                    throw new ArgumentException("El título de la tarea no puede estar vacío.");
-                }
+                string titulo = Console.ReadLine() ?? string.Empty;
 
                 Console.Write(" Detalle o descripción: ");
-                string? detalle = Console.ReadLine()?.Trim() ?? string.Empty;
+                string detalle = Console.ReadLine()?.Trim() ?? string.Empty;
 
                 Console.WriteLine(" Prioridad [1=Baja, 2=Media, 3=Alta] (Enter para Media): ");
                 Console.Write(" Ingrese prioridad (1-3): ");
@@ -351,51 +336,38 @@ namespace SistemaNotificaciones
                 Prioridad prioridad = Prioridad.Media;
                 if (!string.IsNullOrWhiteSpace(prioridadInput))
                 {
-                    if (int.TryParse(prioridadInput, out int pInt) && Enum.IsDefined(typeof(Prioridad), pInt))
-                    {
-                        prioridad = (Prioridad)pInt;
-                    }
-                    else
+                    if (!int.TryParse(prioridadInput, out int valor) || !Enum.IsDefined(typeof(Prioridad), valor))
                     {
                         throw new ArgumentException("La prioridad seleccionada no es válida. Use 1 (Baja), 2 (Media) o 3 (Alta).");
                     }
+                    prioridad = (Prioridad)valor;
                 }
 
-                Tarea nuevaTarea = new Tarea(titulo, detalle, prioridad);
+                Tarea nueva = new Tarea(titulo, detalle, prioridad);
+
+                ConsolaUI.EncabezadoDisparo("GestorTareas.crearTarea()");
+                _gestorTareas.crearTarea(nueva);
 
                 Console.WriteLine();
-                Console.ForegroundColor = ConsoleColor.White;
-                Console.WriteLine("────────────────────────────────────────────────────────────────────────");
-                Console.WriteLine(" Disparando evento GestorTareas.crearTarea()...");
-                Console.WriteLine(" Observadores suscritos respondiendo a la notificación:");
-                Console.WriteLine("────────────────────────────────────────────────────────────────────────");
-                Console.ResetColor();
-
-                // Disparo de la notificación a través del Sujeto
-                _gestorTareas.crearTarea(nuevaTarea);
-
-                Console.WriteLine();
-                MostrarMensajeExito($"Tarea #{nuevaTarea.id} '{nuevaTarea.titulo}' registrada y notificada con éxito.");
+                ConsolaUI.Exito($"Tarea #{nueva.id} '{nueva.titulo}' registrada y notificada con éxito.");
             }
-            catch (Exception ex)
+            catch (ArgumentException ex)
             {
-                MostrarMensajeError($"Error al crear tarea: {ex.Message}");
+                ConsolaUI.Error($"Error al crear tarea: {ex.Message}");
             }
 
-            PausarConsola();
+            ConsolaUI.Pausar();
         }
 
         private static void MostrarListadoTareas()
         {
-            SafeClear();
-            MostrarEncabezadoModulo("LISTADO DE TAREAS REGISTRADAS", ConsoleColor.Blue);
+            ConsolaUI.Limpiar();
+            ConsolaUI.EncabezadoModulo("LISTADO DE TAREAS REGISTRADAS", ConsoleColor.Blue);
 
             var tareas = _gestorTareas.tareas;
             if (tareas.Count == 0)
             {
-                Console.ForegroundColor = ConsoleColor.DarkYellow;
-                Console.WriteLine(" No hay tareas registradas en el sistema.");
-                Console.ResetColor();
+                ConsolaUI.Linea(" No hay tareas registradas en el sistema.", ConsoleColor.DarkYellow);
             }
             else
             {
@@ -410,43 +382,37 @@ namespace SistemaNotificaciones
                 }
             }
 
-            PausarConsola();
+            ConsolaUI.Pausar();
         }
 
-        // =========================================================================
-        // Gestión Dinámica de Suscripciones (Observer en Caliente)
-        // =========================================================================
+        // =====================================================================
+        // Gestión dinámica de suscripciones
+        // =====================================================================
 
         private static void MenuSuscripcionesDinamicas()
         {
             bool volver = false;
             while (!volver)
             {
-                SafeClear();
-                MostrarEncabezadoModulo("CONFIGURACIÓN DINÁMICA DE SUSCRIPCIONES (OBSERVER EN CALIENTE)", ConsoleColor.Magenta);
+                ConsolaUI.Limpiar();
+                ConsolaUI.EncabezadoModulo("CONFIGURACIÓN DINÁMICA DE SUSCRIPCIONES (OBSERVER EN CALIENTE)", ConsoleColor.Magenta);
 
                 Console.WriteLine(" Permite conectar o desconectar observadores en tiempo de ejecución.");
                 Console.WriteLine(" Los cambios se aplican inmediatamente sin reiniciar el programa.");
                 Console.WriteLine();
 
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine(" ─── Suscripciones al Sujeto: GestorProductos ─────────────────────────");
-                Console.ResetColor();
-                Console.Write("  [1] NotificadorEmail:        "); EscribirBotonEstado(_prodEmailSub);
-                Console.Write("  [2] ServicioAuditoria:       "); EscribirBotonEstado(_prodAuditoriaSub);
-                Console.Write("  [3] AlertaEquipoAlmacen:     "); EscribirBotonEstado(_prodAlmacenSub);
+                ConsolaUI.Linea(" ─── Suscripciones al Sujeto: GestorProductos ─────────────────────────", ConsoleColor.Yellow);
+                MostrarOpcionSuscripcion("  [1] NotificadorEmail:        ", _gestorProductos.estaSuscrito(_emailObserver));
+                MostrarOpcionSuscripcion("  [2] ServicioAuditoria:       ", _gestorProductos.estaSuscrito(_auditoriaObserver));
+                MostrarOpcionSuscripcion("  [3] AlertaEquipoAlmacen:     ", _gestorProductos.estaSuscrito(_almacenObserver));
 
                 Console.WriteLine();
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine(" ─── Suscripciones al Sujeto: GestorTareas ────────────────────────────");
-                Console.ResetColor();
-                Console.Write("  [4] NotificadorEmail:        "); EscribirBotonEstado(_tareaEmailSub);
-                Console.Write("  [5] ServicioAuditoria:       "); EscribirBotonEstado(_tareaAuditoriaSub);
+                ConsolaUI.Linea(" ─── Suscripciones al Sujeto: GestorTareas ────────────────────────────", ConsoleColor.Yellow);
+                MostrarOpcionSuscripcion("  [4] NotificadorEmail:        ", _gestorTareas.estaSuscrito(_emailObserver));
+                MostrarOpcionSuscripcion("  [5] ServicioAuditoria:       ", _gestorTareas.estaSuscrito(_auditoriaObserver));
 
                 Console.WriteLine();
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine(" ─── Opciones Globales ────────────────────────────────────────────────");
-                Console.ResetColor();
+                ConsolaUI.Linea(" ─── Opciones Globales ────────────────────────────────────────────────", ConsoleColor.Yellow);
                 Console.WriteLine("  [6] Conectar TODOS los observadores a ambos sujetos");
                 Console.WriteLine("  [7] Desconectar TODOS los observadores (Silenciar notificaciones)");
                 Console.WriteLine("  [8] Volver al Menú Principal");
@@ -458,189 +424,56 @@ namespace SistemaNotificaciones
 
                 switch (op.Trim())
                 {
-                    case "1":
-                        AlternarProdEmail();
-                        break;
-                    case "2":
-                        AlternarProdAuditoria();
-                        break;
-                    case "3":
-                        AlternarProdAlmacen();
-                        break;
-                    case "4":
-                        AlternarTareaEmail();
-                        break;
-                    case "5":
-                        AlternarTareaAuditoria();
-                        break;
-                    case "6":
-                        ConectarTodos();
-                        break;
-                    case "7":
-                        DesconectarTodos();
-                        break;
-                    case "8":
-                        volver = true;
-                        break;
+                    case "1": Alternar<Producto>(_gestorProductos, _emailObserver); break;
+                    case "2": Alternar<Producto>(_gestorProductos, _auditoriaObserver); break;
+                    case "3": Alternar<Producto>(_gestorProductos, _almacenObserver); break;
+                    case "4": Alternar<Tarea>(_gestorTareas, _emailObserver); break;
+                    case "5": Alternar<Tarea>(_gestorTareas, _auditoriaObserver); break;
+                    case "6": ConectarTodos(); break;
+                    case "7": DesconectarTodos(); break;
+                    case "8": volver = true; break;
                     default:
-                        MostrarMensajeError("Opción no válida.");
-                        PausarConsola();
+                        ConsolaUI.Error("Opción no válida.");
+                        ConsolaUI.Pausar();
                         break;
                 }
             }
         }
 
-        private static void EscribirBotonEstado(bool activo)
+        private static void MostrarOpcionSuscripcion(string etiqueta, bool suscrito)
         {
-            if (activo)
+            Console.Write(etiqueta);
+            if (suscrito)
             {
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine("[SUSCRITO / ACTIVO]      (Presione número para desuscribir)");
+                ConsolaUI.Linea("[SUSCRITO / ACTIVO]      (Presione número para desuscribir)", ConsoleColor.Green);
             }
             else
             {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine("[DESUSCRITO / INACTIVO]  (Presione número para suscribir)");
-            }
-            Console.ResetColor();
-        }
-
-        private static void AlternarProdEmail()
-        {
-            if (_prodEmailSub)
-            {
-                _gestorProductos.desuscribir(_emailObserver);
-                _prodEmailSub = false;
-                MostrarAvisoCambio("NotificadorEmail desuscrito de GestorProductos.");
-            }
-            else
-            {
-                _gestorProductos.suscribir(_emailObserver);
-                _prodEmailSub = true;
-                MostrarAvisoCambio("NotificadorEmail suscrito a GestorProductos.");
+                ConsolaUI.Linea("[DESUSCRITO / INACTIVO]  (Presione número para suscribir)", ConsoleColor.Red);
             }
         }
 
-        private static void AlternarProdAuditoria()
-        {
-            if (_prodAuditoriaSub)
-            {
-                _gestorProductos.desuscribir(_auditoriaObserver);
-                _prodAuditoriaSub = false;
-                MostrarAvisoCambio("ServicioAuditoria desuscrito de GestorProductos.");
-            }
-            else
-            {
-                _gestorProductos.suscribir(_auditoriaObserver);
-                _prodAuditoriaSub = true;
-                MostrarAvisoCambio("ServicioAuditoria suscrito a GestorProductos.");
-            }
-        }
+        // =====================================================================
+        // Demostración guiada
+        // =====================================================================
 
-        private static void AlternarProdAlmacen()
+        private static void EjecutarDemostracionGuiada()
         {
-            if (_prodAlmacenSub)
-            {
-                _gestorProductos.desuscribir(_almacenObserver);
-                _prodAlmacenSub = false;
-                MostrarAvisoCambio("AlertaEquipoAlmacen desuscrito de GestorProductos.");
-            }
-            else
-            {
-                _gestorProductos.suscribir(_almacenObserver);
-                _prodAlmacenSub = true;
-                MostrarAvisoCambio("AlertaEquipoAlmacen suscrito a GestorProductos.");
-            }
-        }
-
-        private static void AlternarTareaEmail()
-        {
-            if (_tareaEmailSub)
-            {
-                _gestorTareas.desuscribir(_emailObserver);
-                _tareaEmailSub = false;
-                MostrarAvisoCambio("NotificadorEmail desuscrito de GestorTareas.");
-            }
-            else
-            {
-                _gestorTareas.suscribir(_emailObserver);
-                _tareaEmailSub = true;
-                MostrarAvisoCambio("NotificadorEmail suscrito a GestorTareas.");
-            }
-        }
-
-        private static void AlternarTareaAuditoria()
-        {
-            if (_tareaAuditoriaSub)
-            {
-                _gestorTareas.desuscribir(_auditoriaObserver);
-                _tareaAuditoriaSub = false;
-                MostrarAvisoCambio("ServicioAuditoria desuscrito de GestorTareas.");
-            }
-            else
-            {
-                _gestorTareas.suscribir(_auditoriaObserver);
-                _tareaAuditoriaSub = true;
-                MostrarAvisoCambio("ServicioAuditoria suscrito a GestorTareas.");
-            }
-        }
-
-        private static void ConectarTodos()
-        {
-            if (!_prodEmailSub) AlternarProdEmail();
-            if (!_prodAuditoriaSub) AlternarProdAuditoria();
-            if (!_prodAlmacenSub) AlternarProdAlmacen();
-            if (!_tareaEmailSub) AlternarTareaEmail();
-            if (!_tareaAuditoriaSub) AlternarTareaAuditoria();
-            MostrarAvisoCambio("Todos los observadores han sido SUSCRITOS exitosamente.");
-        }
-
-        private static void DesconectarTodos()
-        {
-            if (_prodEmailSub) AlternarProdEmail();
-            if (_prodAuditoriaSub) AlternarProdAuditoria();
-            if (_prodAlmacenSub) AlternarProdAlmacen();
-            if (_tareaEmailSub) AlternarTareaEmail();
-            if (_tareaAuditoriaSub) AlternarTareaAuditoria();
-            MostrarAvisoCambio("Todos los observadores han sido DESUSCRITOS exitosamente.");
-        }
-
-        private static void MostrarAvisoCambio(string mensaje)
-        {
-            Console.WriteLine();
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($" ✔ {mensaje}");
-            Console.ResetColor();
-            try { Thread.Sleep(300); } catch { }
-        }
-
-        // =========================================================================
-        // Demostración Guiada del Flujo del Diagrama de Secuencia
-        // =========================================================================
-
-        private static void EjecutarDemostracionSecuenciaGuiada()
-        {
-            SafeClear();
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine("╔════════════════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║        DEMOSTRACIÓN GUIADA DEL FLUJO DEL DIAGRAMA DE SECUENCIA         ║");
-            Console.WriteLine("║        Validación en Vivo de Suscripción Dinámica en Observer          ║");
-            Console.WriteLine("╚════════════════════════════════════════════════════════════════════════╝");
-            Console.ResetColor();
+            ConsolaUI.Limpiar();
+            ConsolaUI.Banner(ConsoleColor.Cyan,
+                "        DEMOSTRACIÓN GUIADA DEL PATRÓN OBSERVER",
+                "        Validación en Vivo de Suscripción Dinámica");
 
             Console.WriteLine();
-            Console.WriteLine(" Esta demostración ejecuta automáticamente las fases exactas representadas");
-            Console.WriteLine(" en el diagrama de secuencia UML del informe formal:");
+            Console.WriteLine(" Esta demostración ejecuta automáticamente cinco fases:");
             Console.WriteLine("   1. Suscripción inicial de todos los observadores.");
             Console.WriteLine("   2. Disparo del evento 1 -> Recepción por 3 observadores.");
             Console.WriteLine("   3. Desuscripción dinámica en caliente de NotificadorEmail.");
             Console.WriteLine("   4. Disparo del evento 2 -> Recepción selectiva (Email ya NO recibe).");
-            Console.WriteLine("   5. Demostración de Polimorfismo con Tareas (misma instancia, otro sujeto).");
+            Console.WriteLine("   5. Reutilización con Tareas (misma instancia, otro sujeto).");
             Console.WriteLine();
 
-            PasoGuiado("Iniciar Fase 1: Configurar Sujeto y Suscribir Observadores");
-
-            // Aseguramos estado conectado
+            ConsolaUI.PasoGuiado("Iniciar Fase 1: Configurar Sujeto y Suscribir Observadores");
             ConectarTodos();
             Console.WriteLine(" Observadores suscritos en GestorProductos:");
             Console.WriteLine("   • NotificadorEmail");
@@ -648,180 +481,47 @@ namespace SistemaNotificaciones
             Console.WriteLine("   • AlertaEquipoAlmacen");
             Console.WriteLine();
 
-            PasoGuiado("Iniciar Fase 2: Registrar Producto 1 y Propagar Notificaciones");
-
-            Producto demoProd1 = new Producto(_siguienteIdProducto++, "Servidor Rack Dell PowerEdge", 4500.00m, 5);
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine($" [ACCION] GestorProductos.agregarProducto({demoProd1.nombre})");
-            Console.ResetColor();
+            ConsolaUI.PasoGuiado("Iniciar Fase 2: Registrar Producto 1 y Propagar Notificaciones");
+            DispararProducto(new Producto("Servidor Rack Dell PowerEdge", 4500.00m, 5));
             Console.WriteLine();
+            ConsolaUI.Exito("Resultado Fase 2: Los 3 observadores reaccionaron en tiempo y forma.");
 
-            // Disparo del primer evento
-            _gestorProductos.agregarProducto(demoProd1);
-
-            Console.WriteLine();
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine(" ✔ Resultado Fase 2: Los 3 observadores reaccionaron en tiempo y forma.");
-            Console.ResetColor();
-
-            PasoGuiado("Iniciar Fase 3: Desuscripción Dinámica en Caliente");
-
+            ConsolaUI.PasoGuiado("Iniciar Fase 3: Desuscripción Dinámica en Caliente");
             Console.WriteLine(" [OPERACION] Desuscribiendo NotificadorEmail de GestorProductos...");
             _gestorProductos.desuscribir(_emailObserver);
-            _prodEmailSub = false;
-            Console.ForegroundColor = ConsoleColor.DarkYellow;
-            Console.WriteLine("  -> NotificadorEmail ha sido desuscrito de la lista de difusión.");
-            Console.WriteLine("  -> Los observadores ServicioAuditoria y AlertaEquipoAlmacen CONTINÚAN activos.");
-            Console.ResetColor();
+            ConsolaUI.Linea("  -> NotificadorEmail ha sido desuscrito de la lista de difusión.", ConsoleColor.DarkYellow);
+            ConsolaUI.Linea("  -> Los observadores ServicioAuditoria y AlertaEquipoAlmacen CONTINÚAN activos.", ConsoleColor.DarkYellow);
 
-            PasoGuiado("Iniciar Fase 4: Registrar Producto 2 y Verificar Notificación Selectiva");
-
-            Producto demoProd2 = new Producto(_siguienteIdProducto++, "Switch Gigabit Cisco Catalyst", 850.00m, 12);
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine($" [ACCION] GestorProductos.agregarProducto({demoProd2.nombre})");
-            Console.ResetColor();
+            ConsolaUI.PasoGuiado("Iniciar Fase 4: Registrar Producto 2 y Verificar Notificación Selectiva");
+            DispararProducto(new Producto("Switch Gigabit Cisco Catalyst", 850.00m, 12));
             Console.WriteLine();
-
-            // Disparo del segundo evento
-            _gestorProductos.agregarProducto(demoProd2);
-
-            Console.WriteLine();
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine(" ✔ Resultado Fase 4: NotificadorEmail NO imprimió mensaje (desuscrito con éxito).");
+            ConsolaUI.Exito("Resultado Fase 4: NotificadorEmail NO imprimió mensaje (desuscrito con éxito).");
             Console.WriteLine("   ServicioAuditoria y AlertaEquipoAlmacen respondieron normalmente.");
-            Console.ResetColor();
 
-            PasoGuiado("Iniciar Fase 5: Demostración de Polimorfismo con Módulo de Tareas");
-
-            Console.WriteLine(" Demostrando que NotificadorEmail y ServicioAuditoria son polimórficos");
-            Console.WriteLine(" implementando IObservador<Producto> e IObservador<Tarea> simultáneamente...");
+            ConsolaUI.PasoGuiado("Iniciar Fase 5: Reutilización de Observadores con el Módulo de Tareas");
+            Console.WriteLine(" NotificadorEmail y ServicioAuditoria implementan IObservador<Producto>");
+            Console.WriteLine(" e IObservador<Tarea> simultáneamente...");
             Console.WriteLine();
 
             Tarea demoTarea = new Tarea("Auditoría de Seguridad Trimestral", "Revisión de logs y credenciales de acceso", Prioridad.Alta);
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine($" [ACCION] GestorTareas.crearTarea({demoTarea.titulo})");
-            Console.ResetColor();
+            ConsolaUI.Linea($" [ACCION] GestorTareas.crearTarea({demoTarea.titulo})", ConsoleColor.Yellow);
             Console.WriteLine();
-
             _gestorTareas.crearTarea(demoTarea);
 
             Console.WriteLine();
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine("╔════════════════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║            DEMOSTRACIÓN DE SECUENCIA COMPLETADA CON ÉXITO              ║");
-            Console.WriteLine("║   Se ha verificado la suscripción dinámica, el desacoplamiento total   ║");
-            Console.WriteLine("║   y la reutilización polimórfica de los observadores en .NET.          ║");
-            Console.WriteLine("╚════════════════════════════════════════════════════════════════════════╝");
-            Console.ResetColor();
+            ConsolaUI.Banner(ConsoleColor.Cyan,
+                "            DEMOSTRACIÓN COMPLETADA CON ÉXITO",
+                "   Se verificó la suscripción dinámica, el desacoplamiento total",
+                "   y la reutilización de los observadores en .NET.");
 
-            PausarConsola();
+            ConsolaUI.Pausar();
         }
 
-        private static void PasoGuiado(string descripcionPaso)
+        private static void DispararProducto(Producto producto)
         {
+            ConsolaUI.Linea($" [ACCION] GestorProductos.agregarProducto({producto.nombre})", ConsoleColor.Yellow);
             Console.WriteLine();
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.BackgroundColor = ConsoleColor.DarkBlue;
-            Console.WriteLine($" >> PASO: {descripcionPaso} << ");
-            Console.ResetColor();
-            Console.WriteLine(" Presione [ENTER] para ejecutar este paso...");
-            try
-            {
-                Console.ReadLine();
-            }
-            catch
-            {
-            }
-        }
-
-        // =========================================================================
-        // Métodos Utilitarios de Consola Seguros
-        // =========================================================================
-
-        private static void SafeSetTitle(string title)
-        {
-            try
-            {
-                if (!Console.IsOutputRedirected)
-                {
-                    Console.Title = title;
-                }
-            }
-            catch
-            {
-            }
-        }
-
-        private static void SafeClear()
-        {
-            try
-            {
-                if (!Console.IsOutputRedirected)
-                {
-                    Console.Clear();
-                }
-            }
-            catch
-            {
-            }
-        }
-
-        private static void MostrarEncabezadoModulo(string titulo, ConsoleColor color)
-        {
-            Console.ForegroundColor = color;
-            Console.WriteLine("┌" + new string('─', 72) + "┐");
-            Console.WriteLine("│ " + titulo.PadRight(70) + " │");
-            Console.WriteLine("└" + new string('─', 72) + "┘");
-            Console.ResetColor();
-            Console.WriteLine();
-        }
-
-        private static void MostrarMensajeExito(string mensaje)
-        {
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($" ✔ {mensaje}");
-            Console.ResetColor();
-        }
-
-        private static void MostrarMensajeError(string mensaje)
-        {
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($" ✖ {mensaje}");
-            Console.ResetColor();
-        }
-
-        private static void PausarConsola()
-        {
-            Console.WriteLine();
-            Console.ForegroundColor = ConsoleColor.DarkGray;
-            Console.WriteLine(" Presione [ENTER] o cualquier tecla para continuar...");
-            Console.ResetColor();
-            try
-            {
-                if (Console.IsInputRedirected)
-                {
-                    Console.ReadLine();
-                }
-                else
-                {
-                    Console.ReadKey(true);
-                }
-            }
-            catch
-            {
-            }
-        }
-
-        private static void MostrarDespedida()
-        {
-            SafeClear();
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine("╔════════════════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║    Gracias por utilizar el Sistema de Notificaciones Observer          ║");
-            Console.WriteLine("║                    ¡Hasta pronto!                                      ║");
-            Console.WriteLine("╚════════════════════════════════════════════════════════════════════════╝");
-            Console.ResetColor();
-            Console.WriteLine();
+            _gestorProductos.agregarProducto(producto);
         }
     }
 }

@@ -1,80 +1,41 @@
-using SistemaNotificaciones.Abstracciones;
 using SistemaNotificaciones.Dominio;
 
 namespace SistemaNotificaciones.Sujetos
 {
     /// <summary>
-    /// Actúa como el Sujeto Concreto (Subject) en el patrón Observer para la gestión de productos.
-    /// Administra el catálogo y notifica a los observadores ante cualquier adición.
+    /// Sujeto concreto (Subject) del patrón Observer para la gestión de productos.
+    /// Administra el catálogo, asigna los identificadores y notifica a los observadores
+    /// ante cada alta. La gestión de suscripciones se hereda de <see cref="SujetoBase{T}"/>.
     /// </summary>
-    public class GestorProductos : ISujeto<Producto>
+    public class GestorProductos : SujetoBase<Producto>
     {
-        private readonly List<Producto> _catalogo;
-        private readonly List<IObservador<Producto>> _observadores;
-
-        public GestorProductos()
-        {
-            _catalogo = new List<Producto>();
-            _observadores = new List<IObservador<Producto>>();
-        }
+        private readonly List<Producto> _catalogo = new List<Producto>();
+        private int _siguienteId = 1;
 
         /// <summary>
-        /// Obtiene una vista de solo lectura del catálogo actual de productos.
+        /// Vista de solo lectura del catálogo actual de productos.
         /// </summary>
         public IReadOnlyList<Producto> catalogo => _catalogo.AsReadOnly();
 
         /// <summary>
-        /// Suscribe un nuevo observador para recibir notificaciones.
+        /// Identificador que se asignará al próximo producto registrado.
         /// </summary>
-        public void suscribir(IObservador<Producto> observador)
-        {
-            if (observador == null)
-            {
-                throw new ArgumentNullException(nameof(observador), "El observador a suscribir no puede ser nulo.");
-            }
-
-            if (!_observadores.Contains(observador))
-            {
-                _observadores.Add(observador);
-            }
-        }
+        public int siguienteId => _siguienteId;
 
         /// <summary>
-        /// Desuscribe un observador previamente registrado.
+        /// Registra un producto en el catálogo, le asigna un id y notifica a los observadores.
         /// </summary>
-        public void desuscribir(IObservador<Producto> observador)
+        /// <param name="producto">Producto a agregar.</param>
+        /// <returns>El producto registrado con su id asignado.</returns>
+        /// <exception cref="ArgumentNullException">Si el producto es nulo.</exception>
+        public Producto agregarProducto(Producto producto)
         {
-            if (observador != null && _observadores.Contains(observador))
-            {
-                _observadores.Remove(observador);
-            }
-        }
+            ArgumentNullException.ThrowIfNull(producto);
 
-        /// <summary>
-        /// Notifica a todos los observadores registrados sobre la adición de un producto.
-        /// </summary>
-        public void notificar(Producto producto)
-        {
-            if (producto == null) return;
-
-            foreach (var observador in _observadores.ToList())
-            {
-                observador.actualizar(producto);
-            }
-        }
-
-        /// <summary>
-        /// Agrega un nuevo producto al catálogo interno y dispara la notificación a los observadores.
-        /// </summary>
-        public void agregarProducto(Producto producto)
-        {
-            if (producto == null)
-            {
-                throw new ArgumentNullException(nameof(producto), "El producto a agregar no puede ser nulo.");
-            }
-
+            producto.id = _siguienteId++;
             _catalogo.Add(producto);
             notificar(producto);
+            return producto;
         }
     }
 }
